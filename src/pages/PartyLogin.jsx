@@ -10,12 +10,13 @@ const PartyLogin = () => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
-    if (loginParty(nameOrParty, password)) {
+    const result = await loginParty(nameOrParty, password);
+    if (result.success) {
       navigate('/party/dashboard');
     } else {
-      setError('Invalid Name/Party or Password. Only approved parties can login.');
+      setError(result.message);
     }
   };
 

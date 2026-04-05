@@ -8,13 +8,11 @@ import multer from 'multer';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import axios from 'axios';
-import otpGenerator from 'otp-generator';
 
 import Voter from './models/Voter.js';
 import Candidate from './models/Candidate.js';
 import Vote from './models/Vote.js';
 import Config from './models/Config.js';
-import OTP from './models/OTP.js';
 
 dotenv.config();
 
@@ -54,85 +52,9 @@ const initConfig = async () => {
     return config;
 };
 
-// --- OTP ROUTES ---
-
-// POST /api/otp/send — generate & send OTP via Fast2SMS
-app.post('/api/otp/send', async (req, res) => {
-    try {
-        const { phone } = req.body;
-        if (!phone || phone.length < 10) {
-            return res.status(400).json({ error: 'Invalid phone number.' });
-        }
-
-        // Generate 6-digit OTP
-        const code = otpGenerator.generate(6, {
-            upperCaseAlphabets: false,
-            lowerCaseAlphabets: false,
-            specialChars: false
-        });
-
-        // Save/update in MongoDB (valid for 5 mins)
-        const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
-        await OTP.findOneAndUpdate(
-            { phone },
-            { code, expiresAt },
-            { upsert: true, new: true }
-        );
-
-        // Always log for testing
-        console.log(`🔑 OTP for ${phone}: ${code}`);
-
-        // Try sending via Fast2SMS
-        const apiKey = process.env.FAST2SMS_API_KEY?.trim();
-        if (apiKey) {
-            try {
-                const smsRes = await axios.get('https://www.fast2sms.com/dev/bulkV2', {
-                    params: {
-                        authorization: apiKey,
-                        route: 'otp',
-                        variables_values: code,
-                        numbers: phone
-                    },
-                    timeout: 8000
-                });
-                console.log('📱 SMS Response:', JSON.stringify(smsRes.data));
-            } catch (smsErr) {
-                console.error('⚠️ SMS send failed (OTP shown above for testing):', smsErr.response?.data || smsErr.message);
-            }
-        } else {
-            console.warn('⚠️ No Fast2SMS key — OTP shown in console above for testing.');
-        }
-
-        res.json({ success: true, message: 'OTP Sent!' });
-    } catch (err) {
-        console.error('OTP send error:', err.message);
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// POST /api/otp/verify — verify OTP
-app.post('/api/otp/verify', async (req, res) => {
-    try {
-        const { phone, code } = req.body;
-        const record = await OTP.findOne({ phone, code });
-        if (!record) return res.status(400).json({ error: 'Invalid OTP.' });
-        if (record.expiresAt && new Date() > new Date(record.expiresAt)) {
-            await OTP.deleteOne({ _id: record._id });
-            return res.status(400).json({ error: 'OTP expired. Please request a new one.' });
-        }
-        // Delete used OTP
-        await OTP.deleteOne({ _id: record._id });
-        res.json({ success: true, message: 'OTP verified!' });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
 // --- AUTH ROUTES ---
 
 // Voter Register
-// OTP is verified on the frontend via Firebase Phone Auth.
-// We just check if the phone is not already registered and save the voter.
 app.post('/api/voter/register', upload.single('photo'), async (req, res) => {
     try {
         const { voterId, name, phone, dob, gender, password } = req.body;
@@ -156,20 +78,7 @@ app.post('/api/voter/register', upload.single('photo'), async (req, res) => {
     }
 });
 
-// Voter Login (Simplified for Phase 1 - Find Phone for OTP)
-app.post('/api/voter/find-phone', async (req, res) => {
-    try {
-        const { voterId } = req.body;
-        const voter = await Voter.findOne({ voterId });
-        if (!voter) return res.status(404).json({ error: 'Voter ID not found.' });
-        res.json({ phone: voter.phone });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
 // Voter Login
-// OTP is verified on the frontend via Firebase. Backend only verifies password.
 app.post('/api/voter/login', async (req, res) => {
     try {
         const { voterId, password } = req.body;
@@ -201,6 +110,26 @@ app.post('/api/candidate/register', upload.fields([{ name: 'photo', maxCount: 1 
         const candidate = new Candidate({ name, partyName, photo: photoPath, flag: flagPath, password: hashedPassword });
         await candidate.save();
         res.json({ message: 'Application Sent! Wait for admin approval.' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Candidate Login
+app.post('/api/candidate/login', async (req, res) => {
+    try {
+        const { nameOrParty, password } = req.body;
+        const candidate = await Candidate.findOne({
+            $or: [{ name: nameOrParty }, { partyName: nameOrParty }]
+        });
+        if (!candidate) return res.status(404).json({ error: 'Candidate/Party not found.' });
+        if (candidate.status !== 'approved') return res.status(403).json({ error: 'Your party is not approved yet.' });
+
+        const isMatch = await bcrypt.compare(password, candidate.password);
+        if (!isMatch) return res.status(400).json({ error: 'Invalid password.' });
+
+        const token = jwt.sign({ id: candidate._id, role: 'party' }, process.env.JWT_SECRET);
+        res.json({ token, user: { ...candidate.toObject(), role: 'party' } });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -268,6 +197,15 @@ app.put('/api/admin/party/status', async (req, res) => {
 // Election Config
 app.get('/api/config', async (req, res) => {
     const config = await initConfig();
+    
+    if (!config.resultsAnnounced && config.votingTime && config.votingTime.end) {
+        if (new Date() > new Date(config.votingTime.end)) {
+            config.resultsAnnounced = true;
+            await config.save();
+            console.log('🕒 Auto-announced results via config fetch.');
+        }
+    }
+
     res.json(config);
 });
 
@@ -307,5 +245,21 @@ app.get('/api/votes', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+
+// Background loop to auto-announce results exactly when timer expires
+setInterval(async () => {
+    try {
+        const config = await Config.findOne();
+        if (config && !config.resultsAnnounced && config.votingTime && config.votingTime.end) {
+            if (new Date() > new Date(config.votingTime.end)) {
+                config.resultsAnnounced = true;
+                await config.save();
+                console.log('🕒 Voting time ended. Results have been automatically announced!');
+            }
+        }
+    } catch (err) {
+        // ignore errors in background loop
+    }
+}, 60000); // Check every minute
 
 app.listen(PORT, () => console.log(`🚀 Server running on http://localhost:${PORT}`));

@@ -22,9 +22,7 @@ const VoterRegister = () => {
 
   const [photoPreview, setPhotoPreview] = useState(null);
   const [phi, setPhi] = useState(null);
-  const [otp, setOtp] = useState('');
-  const [otpSent, setOtpSent] = useState(false);
-  const [otpVerified, setOtpVerified] = useState(false);
+
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -38,34 +36,7 @@ const VoterRegister = () => {
     }
   };
 
-  const handleSendOTP = async () => {
-    const phone = formData.phone.trim();
-    if (phone.length < 10) return setError('Enter a valid 10-digit phone number');
-    setError('');
-    setLoading(true);
-    try {
-      await axios.post(`${API_URL}/otp/send`, { phone });
-      setOtpSent(true);
-    } catch (err) {
-      setError(err.response?.data?.error || 'Failed to send OTP. Try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
 
-  const handleVerifyOTP = async () => {
-    if (otp.length !== 6) return setError('Enter the 6-digit OTP');
-    setError('');
-    setLoading(true);
-    try {
-      await axios.post(`${API_URL}/otp/verify`, { phone: formData.phone.trim(), code: otp });
-      setOtpVerified(true);
-    } catch (err) {
-      setError(err.response?.data?.error || 'Invalid OTP. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const validateAge = (dateString) => {
     const today = new Date();
@@ -78,7 +49,6 @@ const VoterRegister = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!otpVerified) return setError('Please verify your OTP first.');
     if (!validateAge(formData.dob)) return setError('You must be at least 18 years old to register!');
     if (formData.password.length < 8) return setError('Password must be at least 8 characters!');
     if (formData.password !== formData.confirmPassword) return setError('Passwords do not match!');
@@ -115,7 +85,7 @@ const VoterRegister = () => {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
             {[
               { icon: <Fingerprint size={18} />, text: 'Voter ID Verification' },
-              { icon: <Mail size={18} />, text: 'SMS OTP Authentication' },
+              { icon: <Mail size={18} />, text: 'Secure Registration' },
               { icon: <Lock size={18} />, text: 'AES-256 Encrypted Security' },
             ].map((item, i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', color: 'var(--text-primary)' }}>
@@ -170,68 +140,19 @@ const VoterRegister = () => {
             </div>
           </div>
 
-          {/* Phone + Send OTP */}
+          {/* Phone */}
           <div>
             <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Phone Number</label>
-            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-end' }}>
-              <input
-                type="tel"
-                name="phone"
-                className="input-field"
-                placeholder="9876543210"
-                onChange={handleChange}
-                disabled={otpSent}
-                maxLength={10}
-                style={{ flex: 1 }}
-                required
-              />
-              {!otpSent ? (
-                <button type="button" onClick={handleSendOTP} className="btn btn-secondary"
-                  style={{ whiteSpace: 'nowrap', padding: '0.6rem 1.2rem' }} disabled={loading}>
-                  {loading ? 'Sending...' : 'Send OTP'}
-                </button>
-              ) : !otpVerified && (
-                <button type="button" onClick={() => { setOtpSent(false); setOtp(''); }}
-                  className="btn btn-secondary"
-                  style={{ whiteSpace: 'nowrap', padding: '0.6rem 1rem', opacity: 0.7, fontSize: '0.75rem' }}>
-                  Resend
-                </button>
-              )}
-            </div>
+            <input
+              type="tel"
+              name="phone"
+              className="input-field"
+              placeholder="9876543210"
+              onChange={handleChange}
+              maxLength={10}
+              required
+            />
           </div>
-
-          {/* OTP Input - show after sent, hide after verified */}
-          {otpSent && !otpVerified && (
-            <div style={{ background: 'rgba(139,92,246,0.08)', padding: '1rem', borderRadius: '0.75rem', border: '1px solid var(--border)' }}>
-              <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.5rem' }}>
-                📱 OTP sent to {formData.phone} — enter 6-digit code below
-              </label>
-              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-end' }}>
-                <input
-                  type="text"
-                  className="input-field"
-                  placeholder="••••••"
-                  value={otp}
-                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                  maxLength={6}
-                  style={{ fontSize: '1.3rem', letterSpacing: '0.5rem', textAlign: 'center', flex: 1 }}
-                  autoFocus
-                />
-                <button type="button" onClick={handleVerifyOTP} className="btn btn-secondary"
-                  style={{ whiteSpace: 'nowrap', padding: '0.6rem 1.2rem' }}
-                  disabled={loading || otp.length !== 6}>
-                  {loading ? 'Verifying...' : 'Verify'}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Verified Badge */}
-          {otpVerified && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#22c55e', fontSize: '0.85rem', padding: '0.6rem 1rem', background: 'rgba(34,197,94,0.1)', borderRadius: '0.5rem', border: '1px solid rgba(34,197,94,0.2)' }}>
-              <CheckCircle size={16} /> Phone verified successfully ✓
-            </div>
-          )}
 
           {/* Password fields */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
@@ -252,8 +173,8 @@ const VoterRegister = () => {
           )}
 
           <button type="submit" className="btn btn-primary"
-            style={{ marginTop: '0.5rem', padding: '1rem', opacity: otpVerified ? 1 : 0.5 }}
-            disabled={!otpVerified || loading}>
+            style={{ marginTop: '0.5rem', padding: '1rem' }}
+            disabled={loading}>
             {loading ? 'Registering...' : '🗳 Complete Registration'}
           </button>
         </form>

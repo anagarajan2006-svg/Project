@@ -53,14 +53,7 @@ export const VotingProvider = ({ children }) => {
     }
   };
 
-  const getVoterByVoterId = async (voterId) => {
-    try {
-      const res = await axios.post(`${API_URL}/voter/find-phone`, { voterId });
-      return { phone: res.data.phone };
-    } catch (err) {
-      return null;
-    }
-  };
+
 
   const loginVoter = async (voterId, password) => {
     try {
@@ -83,14 +76,13 @@ export const VotingProvider = ({ children }) => {
   };
 
   const loginParty = async (nameOrParty, password) => {
-    // For simplicity, reusing voter-like check for parties in this phase
-    const party = parties.find(p => (p.name === nameOrParty || p.partyName === nameOrParty) && p.status === 'approved');
-    if (party) {
-       // In a real app, this would also be an API call
-      setCurrentUser({ ...party, role: 'party' });
+    try {
+      const res = await axios.post(`${API_URL}/candidate/login`, { nameOrParty, password });
+      setCurrentUser({ ...res.data.user, token: res.data.token });
       return { success: true };
+    } catch (err) {
+      return { success: false, message: err.response?.data?.error || "Invalid credentials or not approved." };
     }
-    return { success: false, message: "Invalid credentials or not approved." };
   };
 
   const logout = () => setCurrentUser(null);
@@ -156,7 +148,7 @@ export const VotingProvider = ({ children }) => {
 
   const value = {
     parties, votes, votingTime, resultsAnnounced, currentUser, BASE_URL,
-    registerVoter, loginVoter, loginAdmin, loginParty, logout, getVoterByVoterId,
+    registerVoter, loginVoter, loginAdmin, loginParty, logout,
     registerParty, updatePartyStatus, setElectionTimer, castVote, announceResults
   };
 
